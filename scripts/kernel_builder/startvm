@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# init ssh port
+if [ -z $1 ];
+then
+	SSH_PORT=10069
+else
+	SSH_PORT=$1
+fi
+
+# init core number
+if [ -z $2 ];
+then
+	CORE_NUM=2
+else
+	CORE_NUM=$2
+fi
+
+# init memory size
+if [ -z $3 ];
+then
+	MEM_SIZE=1G
+else
+	MEM_SIZE=$3
+fi
+
+# resolve image path
+list=($(pwd)/../create-image/*.img)
+IMAGE=${list[0]}
+
+KERNEL=$(pwd)/kernel/arch/x86/boot/bzImage
+
+qemu-system-x86_64 \
+  -snapshot \
+  -kernel $KERNEL \
+  -hda $IMAGE \
+  -append "console=ttyS0 root=/dev/sda debug earlyprintk=serial oops=panic panic_on_warn=1 nokaslr nosmap nosmep" \
+  -net nic -net user,hostfwd=tcp::${SSH_PORT}-:22 \
+  -nographic \
+  -m $MEM_SIZE \
+  -monitor none,server,nowait,nodelay,reconnect=-1 \
+  -smp cores=$CORE_NUM,threads=2 \
+  -enable-kvm \
+  -cpu host,-smap,-smep \
+  2>&1

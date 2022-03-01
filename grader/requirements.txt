@@ -1,0 +1,7 @@
+oauth2client
+pwntools
+tqdm
+colorlog
+pandas
+termcolor
+scipy

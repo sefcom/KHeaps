@@ -1,0 +1,132 @@
+diff --git a/include/linux/slub_def.h b/include/linux/slub_def.h
+index 0adae16..45f5d79 100644
+--- a/include/linux/slub_def.h
++++ b/include/linux/slub_def.h
+@@ -135,6 +135,7 @@ struct kmem_cache {
+ 	struct kasan_cache kasan_info;
+ #endif
+ 
++	atomic_long_t heap_usage;
+ 	struct kmem_cache_node *node[MAX_NUMNODES];
+ };
+ 
+diff --git a/mm/slab_common.c b/mm/slab_common.c
+index c8cb367..c3d5152 100644
+--- a/mm/slab_common.c
++++ b/mm/slab_common.c
+@@ -498,6 +498,7 @@ kmem_cache_create(const char *name, size_t size, size_t align,
+ 		}
+ 		return NULL;
+ 	}
++	atomic_long_set(&s->heap_usage, 0);
+ 	return s;
+ }
+ EXPORT_SYMBOL(kmem_cache_create);
+diff --git a/mm/slub.c b/mm/slub.c
+index cfd56e5..8eae4a5 100644
+--- a/mm/slub.c
++++ b/mm/slub.c
+@@ -35,6 +35,7 @@
+ #include <linux/prefetch.h>
+ #include <linux/memcontrol.h>
+ #include <linux/random.h>
++#include <linux/miscdevice.h>
+ 
+ #include <trace/events/kmem.h>
+ 
+@@ -2727,9 +2728,16 @@ static __always_inline void *slab_alloc_node(struct kmem_cache *s,
+ 	return object;
+ }
+ 
++
++void heap_usage_hook(struct kmem_cache *s)
++{
++	atomic_long_inc(&s->heap_usage);
++}
++
+ static __always_inline void *slab_alloc(struct kmem_cache *s,
+ 		gfp_t gfpflags, unsigned long addr)
+ {
++	heap_usage_hook(s);
+ 	return slab_alloc_node(s, gfpflags, NUMA_NO_NODE, addr);
+ }
+ 
+@@ -2965,6 +2973,7 @@ static __always_inline void slab_free(struct kmem_cache *s, struct page *page,
+ 				      void *head, void *tail, int cnt,
+ 				      unsigned long addr)
+ {
++	heap_usage_hook(s);
+ 	slab_free_freelist_hook(s, head, tail);
+ 	/*
+ 	 * slab_free_freelist_hook() could have put the items into quarantine.
+@@ -5788,6 +5797,53 @@ static int sysfs_slab_alias(struct kmem_cache *s, const char *name)
+ 	return 0;
+ }
+ 
++static int heap_usage_open(struct inode *inode, struct file *file)
++{
++	printk("heap_usage_open is called!!!");
++	return 0;
++}
++
++static int heap_usage_release(struct inode *inode, struct file *file)
++{
++	printk("heap_usage_release is called!!!");
++	return 0;
++}
++
++static ssize_t heap_usage_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
++{
++	int i;
++	printk("heap_usage_read is called!!!");
++	for(i=0; i<14; i++) {
++		struct kmem_cache *cache = kmalloc_caches[i];
++		if(cache) {
++			long tmp_usage = atomic_long_read(&cache->heap_usage);
++			printk("%s: %ld\n", cache->name, tmp_usage);
++		}
++		printk("--------------------");
++	}
++	return 0;
++}
++
++static ssize_t heap_usage_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
++{
++	int i;
++	printk("heap_usage_write is called!!!");
++	printk("clear heap usage!!!");
++	for(i=0; i<14; i++) {
++		struct kmem_cache *cache = kmalloc_caches[i];
++		if(cache) {
++			atomic_long_set(&cache->heap_usage, 0);
++		}
++	}
++	return 1;
++}
++
++struct file_operations file_ops = {
++	.read = heap_usage_read,
++	.write = heap_usage_write,
++	.open = heap_usage_open,
++	.release = heap_usage_release
++};
+ static int __init slab_sysfs_init(void)
+ {
+ 	struct kmem_cache *s;
+@@ -5824,6 +5880,16 @@ static int __init slab_sysfs_init(void)
+ 
+ 	mutex_unlock(&slab_mutex);
+ 	resiliency_test();
++
++	struct miscdevice *dev = kmalloc(sizeof(struct miscdevice), GFP_KERNEL);
++	memset(dev, 0, sizeof(struct miscdevice));
++	dev->minor = 131;
++	dev->name = "heap_usage";
++	dev->fops = &file_ops;
++
++	if(misc_register(dev)) {
++		printk("!!!!! miscdev register fail !!!!!!");
++	}
+ 	return 0;
+ }
+ 

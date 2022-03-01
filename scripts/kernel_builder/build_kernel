@@ -1,0 +1,20 @@
+#!/bin/bash
+
+TAG=v4.15
+
+set -eux
+
+# install some dependencies
+sudo apt-get install git fakeroot build-essential ncurses-dev xz-utils libssl-dev bc flex libelf-dev bison
+
+# download the kernel source code first
+echo "Downloading linux kernel source code..."
+git clone --branch $TAG --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/
+mv linux kernel
+
+# apply the configuration and compile the kernel
+pushd kernel
+git apply ../patches/config_$TAG.patch
+git apply ../patches/kernel_patch
+make -j64
+popd
